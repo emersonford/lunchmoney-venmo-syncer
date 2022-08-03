@@ -194,6 +194,8 @@ enum Verb {
         /// The API token to invalidate
         api_token: String,
     },
+
+    // TODO: add a one-off sync so users don't need to keep an API token around
 }
 
 #[tokio::main]
