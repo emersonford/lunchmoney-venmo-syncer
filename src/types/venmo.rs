@@ -1,10 +1,12 @@
+use std::fmt;
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use chrono::{offset::TimeZone, DateTime, NaiveDateTime, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 use rusty_money::iso::Currency;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde_with::{serde_as, DisplayFromStr};
 use thiserror::Error;
 
 use super::lunchmoney;
@@ -19,11 +21,13 @@ pub enum Error {
     ParseAmountError(String),
     #[error("expected currency marker {0} for {1}, got {2} from Venmo")]
     WrongCurrencyError(String, String, String),
+    #[error("expected field {0} to be defined on record {1:?}")]
+    InvalidRecord(String, TransactionRecord),
     #[error("expected field {0} to be defined due to {1} on record {2:?}")]
-    InvalidRecord(String, String, Transaction),
+    InvalidTransaction(String, String, Transaction),
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransactionType {
     Charge,
     Payment,
@@ -47,7 +51,7 @@ impl FromStr for TransactionType {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum TransactionStatus {
     Complete,
     Issued,
@@ -68,13 +72,25 @@ impl FromStr for TransactionStatus {
 }
 
 lazy_static! {
-    static ref VENMO_AMOUNT_RE: Regex = Regex::new(r"^(-?)([^0-9])([0-9.]+)$").unwrap();
+    static ref VENMO_AMOUNT_RE: Regex = Regex::new(r"^([-+]?)[ ]?([^0-9])([0-9.]+)$").unwrap();
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Amount {
     pub currency: String,
     pub val: f64,
+}
+
+impl fmt::Display for Amount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{:.4}",
+            if self.val.is_sign_negative() { "-" } else { "" },
+            self.currency,
+            self.val.abs()
+        )
+    }
 }
 
 impl FromStr for Amount {
@@ -99,44 +115,121 @@ impl FromStr for Amount {
 }
 
 /// Venmo transaction structure as found in their statement CSVs.
+#[serde_as]
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
-pub struct Transaction {
+pub struct TransactionRecord {
     #[serde(rename = "ID")]
+    pub id: Option<u64>,
+    pub datetime: Option<NaiveDateTime>,
+    #[serde(rename = "Type")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub type_: Option<TransactionType>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub status: Option<TransactionStatus>,
+    pub note: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+    #[serde(rename = "Amount (total)")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub amount_total: Option<Amount>,
+    #[serde(rename = "Amount (tip)")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub amount_tip: Option<Amount>,
+    #[serde(rename = "Amount (fee)")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub amount_fee: Option<Amount>,
+    #[serde(rename = "Funding Source")]
+    pub funding_source: Option<String>,
+    pub destination: Option<String>,
+    #[serde(rename = "Beginning Balance")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub beginning_balance: Option<Amount>,
+    #[serde(rename = "Ending Balance")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub ending_balance: Option<Amount>,
+    #[serde(rename = "Statement Period Venmo Fees")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub statment_period_venmo_fees: Option<Amount>,
+    #[serde(rename = "Terminal Location")]
+    pub terminal_location: Option<String>,
+    #[serde(rename = "Year to Date Venmo Fees")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub year_to_date_venmo_fees: Option<Amount>,
+    pub disclaimer: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Transaction {
     pub id: u64,
     pub datetime: DateTime<Utc>,
-    #[serde(rename = "Type")]
     pub type_: TransactionType,
     pub status: TransactionStatus,
     pub note: Option<String>,
     pub from: Option<String>,
     pub to: Option<String>,
-    #[serde(rename = "Amount (total)")]
-    pub total_amount: Amount,
-    #[serde(rename = "Funding Source")]
+    pub amount_total: Amount,
     pub funding_source: Option<String>,
     pub destination: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct BalanceRecord {
-    #[serde(rename = "Beginning Balance")]
-    pub beginning_balance: Option<Amount>,
-    #[serde(rename = "Ending Balance")]
-    pub ending_balance: Option<Amount>,
+impl TryFrom<TransactionRecord> for Transaction {
+    type Error = Error;
+
+    fn try_from(val: TransactionRecord) -> Result<Self, Self::Error> {
+        if val.id.is_none() {
+            return Err(Error::InvalidRecord("id".to_string(), val));
+        }
+
+        if val.datetime.is_none() {
+            return Err(Error::InvalidRecord("datetime".to_string(), val));
+        }
+
+        if val.type_.is_none() {
+            return Err(Error::InvalidRecord("type_".to_string(), val));
+        }
+
+        if val.status.is_none() {
+            return Err(Error::InvalidRecord("status".to_string(), val));
+        }
+
+        if val.amount_total.is_none() {
+            return Err(Error::InvalidRecord("amount_total".to_string(), val));
+        }
+
+        Ok(Self {
+            id: val.id.unwrap(),
+            datetime: Utc.from_utc_datetime(&val.datetime.unwrap()),
+            type_: val.type_.unwrap(),
+            status: val.status.unwrap(),
+            note: val.note,
+            from: val.from,
+            to: val.to,
+            amount_total: val.amount_total.unwrap(),
+            funding_source: val.funding_source,
+            destination: val.destination,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct Statement {
+    pub beginning_balance: Amount,
+    pub ending_balance: Amount,
+    pub transactions: Vec<Transaction>,
 }
 
 impl Transaction {
-    fn to_lunchmoney_transactions(
+    pub fn to_lunchmoney_transactions(
         &self,
         expected_currency: Currency,
         asset_id: u64,
     ) -> Result<Vec<lunchmoney::Transaction>, Error> {
-        if self.total_amount.currency != expected_currency.symbol {
+        if self.amount_total.currency != expected_currency.symbol {
             return Err(Error::WrongCurrencyError(
                 expected_currency.symbol.to_string(),
                 expected_currency.iso_alpha_code.to_string(),
-                self.total_amount.currency.clone(),
+                self.amount_total.currency.clone(),
             ));
         }
 
@@ -146,16 +239,16 @@ impl Transaction {
                 .as_ref()
                 .map(|val| format!("TRANSFER TO {}", val))
                 .ok_or_else(|| {
-                    Error::InvalidRecord(
+                    Error::InvalidTransaction(
                         "destination".to_string(),
                         "'Transaction Type' is set to 'Standard Transfer'".to_string(),
                         self.clone(),
                     )
                 })?,
             TransactionType::Charge => {
-                if self.total_amount.val.is_sign_positive() {
+                if self.amount_total.val.is_sign_positive() {
                     self.to.as_ref().cloned().ok_or_else(|| {
-                        Error::InvalidRecord(
+                        Error::InvalidTransaction(
                             "to".to_string(),
                             "'Transaction Type' is set to 'Charge' and 'Amount' is positive"
                                 .to_string(),
@@ -164,7 +257,7 @@ impl Transaction {
                     })?
                 } else {
                     self.from.as_ref().cloned().ok_or_else(|| {
-                        Error::InvalidRecord(
+                        Error::InvalidTransaction(
                             "from".to_string(),
                             "'Transaction Type' is set to 'Charge' and 'Amount' is negative"
                                 .to_string(),
@@ -174,9 +267,9 @@ impl Transaction {
                 }
             }
             TransactionType::Payment | TransactionType::MerchantTransaction => {
-                if self.total_amount.val.is_sign_positive() {
+                if self.amount_total.val.is_sign_positive() {
                     self.from.as_ref().cloned().ok_or_else(|| {
-                        Error::InvalidRecord(
+                        Error::InvalidTransaction(
                             "from".to_string(),
                             "'Transaction Type' is set to 'Payment' or 'Merchant Transaction' and 'Amount' is positive"
                                 .to_string(),
@@ -185,7 +278,7 @@ impl Transaction {
                     })?
                 } else {
                     self.to.as_ref().cloned().ok_or_else(|| {
-                        Error::InvalidRecord(
+                        Error::InvalidTransaction(
                             "to".to_string(),
                             "'Transaction Type' is set to 'Payment' or 'Merchant Transaction' and 'Amount' is negative"
                                 .to_string(),
@@ -200,8 +293,8 @@ impl Transaction {
             let mut txn = vec![lunchmoney::Transaction {
                 date: self.datetime,
                 payee: Some(payee),
-                amount: lunchmoney::Amount(self.total_amount.val),
-                currency: Some(expected_currency.iso_alpha_code.to_string()),
+                amount: lunchmoney::Amount(self.amount_total.val),
+                currency: Some(expected_currency.iso_alpha_code.to_string().to_lowercase()),
                 notes: self.note.as_ref().cloned(),
                 asset_id: Some(asset_id),
                 external_id: Some(self.id.to_string()),
@@ -216,8 +309,8 @@ impl Transaction {
                     txn.push(lunchmoney::Transaction {
                         date: self.datetime,
                         payee: Some(format!("TRANSFER FROM {}", funding_source)),
-                        amount: lunchmoney::Amount(-self.total_amount.val),
-                        currency: Some(expected_currency.iso_alpha_code.to_string()),
+                        amount: lunchmoney::Amount(-self.amount_total.val),
+                        currency: Some(expected_currency.iso_alpha_code.to_string().to_lowercase()),
                         notes: self
                             .note
                             .as_ref()
@@ -241,8 +334,8 @@ impl Transaction {
                     txn.push(lunchmoney::Transaction {
                         date: self.datetime,
                         payee: Some(format!("TRANSFER TO {}", destination)),
-                        amount: lunchmoney::Amount(-self.total_amount.val),
-                        currency: Some(expected_currency.iso_alpha_code.to_string()),
+                        amount: lunchmoney::Amount(-self.amount_total.val),
+                        currency: Some(expected_currency.iso_alpha_code.to_string().to_lowercase()),
                         notes: self
                             .note
                             .as_ref()
@@ -260,4 +353,10 @@ impl Transaction {
 
         Ok(transactions)
     }
+}
+
+pub struct AccountRecord {
+    pub profile_id: u64,
+    pub api_token: String,
+    pub currency: Currency,
 }

@@ -5,16 +5,17 @@ use std::time::UNIX_EPOCH;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, skip_serializing_none, DisplayFromStr};
 
 /// Tag object as described in https://lunchmoney.dev/#tags-object.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct Tag {
     pub id: u64,
     pub name: String,
     pub description: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransactionStatus {
     Cleared,
@@ -25,7 +26,7 @@ pub enum TransactionStatus {
 
 /// An f64 that serializes to a float up to 4 decimal places, as specified in the `Transaction`
 /// amount field description in https://lunchmoney.dev/#transaction-object.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Amount(pub f64);
 
 impl FromStr for Amount {
@@ -49,11 +50,14 @@ impl From<f64> for Amount {
 }
 
 /// Transaction object as defined in https://lunchmoney.dev/#transaction-object
-#[derive(Debug, Serialize, Deserialize)]
+#[serde_as]
+#[skip_serializing_none]
+#[derive(Debug, Serialize)]
 pub struct Transaction {
     pub id: Option<u64>,
     pub date: DateTime<Utc>,
     pub payee: Option<String>,
+    #[serde_as(as = "DisplayFromStr")]
     pub amount: Amount,
     pub currency: Option<String>,
     pub notes: Option<String>,
@@ -88,4 +92,45 @@ impl Default for Transaction {
             original_name: None,
         }
     }
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize)]
+pub struct Asset {
+    pub id: u64,
+    #[serde(rename = "type_name")]
+    pub type_: String,
+    #[serde(rename = "subtype_name")]
+    pub subtype: Option<String>,
+    pub name: String,
+    pub display_name: Option<String>,
+    #[serde_as(as = "DisplayFromStr")]
+    pub balance: Amount,
+    pub balance_as_of: DateTime<Utc>,
+    pub closed_on: Option<String>,
+    pub currency: String,
+    pub institution_name: String,
+    pub exclude_transactions: Option<bool>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GetAllAssetsResponse {
+    pub assets: Vec<Asset>,
+}
+
+#[skip_serializing_none]
+#[derive(Debug, Serialize)]
+pub struct InsertTransactionRequest {
+    pub transactions: Vec<Transaction>,
+    pub apply_rules: Option<bool>,
+    pub skip_duplicates: Option<bool>,
+    pub check_for_recurring: Option<bool>,
+    pub debit_as_negative: Option<bool>,
+    pub skip_balance_update: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InsertTransactionResponse {
+    pub ids: Vec<u64>,
 }

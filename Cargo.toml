@@ -4,16 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-hyper = { version = "0.14", features = ["full"] }
+hyper = { version = "0.14", features = ["client", "http1", "http2", "runtime"] }
+hyper-tls = "0.5"
 tokio = { version = "1.20", features = ["full"] }
 clap = { version = "3.2", features = ["derive", "env"] }
 anyhow = "1.0"
 humantime = "2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_with = { version = "2.0.0", features = ["chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1.0"
 rusty-money = "0.4.1"
 csv = "1.1"
 regex = "1"
 lazy_static = "1.4.0"
+itertools = "0.10"
