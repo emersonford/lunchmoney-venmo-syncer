@@ -2,7 +2,6 @@ use anyhow::bail;
 use anyhow::Result;
 use hyper::header::{AUTHORIZATION, CONTENT_TYPE};
 use hyper::{body, Method, Request, StatusCode};
-use serde_json;
 
 use crate::types::lunchmoney::{
     Asset, GetAllAssetsResponse, InsertTransactionRequest, InsertTransactionResponse, Transaction,

@@ -56,9 +56,8 @@ async fn cmd_list_venmo_transactions(
     let account = AccountRecord {
         profile_id: args.profile_id,
         api_token: args.api_token.clone(),
-        currency: rusty_money::iso::find(&args.currency)
-            .ok_or_else(|| anyhow!("Given currency {} is not valid", args.currency))?
-            .clone(),
+        currency: *rusty_money::iso::find(&args.currency)
+            .ok_or_else(|| anyhow!("Given currency {} is not valid", args.currency))?,
     };
 
     let transactions = fetch_venmo_transactions(client, &account, &start_date, &end_date).await?;
@@ -123,7 +122,7 @@ async fn cmd_sync_venmo_transactions(
     let venmo_account = AccountRecord {
         profile_id: args.venmo_profile_id,
         api_token: args.venmo_api_token.clone(),
-        currency: currency.clone(),
+        currency: *currency,
     };
 
     let venmo_transactions =
@@ -135,16 +134,15 @@ async fn cmd_sync_venmo_transactions(
     );
     println!("Ending balance: {}", venmo_transactions.ending_balance);
 
-    let lunchmoney_transactions: Vec<_> = venmo_transactions
+    let lunchmoney_transactions = venmo_transactions
         .transactions
         .into_iter()
         .map(|transaction| {
-            transaction.to_lunchmoney_transactions(currency.clone(), args.lunch_money_asset_id)
+            transaction.to_lunchmoney_transactions(*currency, args.lunch_money_asset_id)
         })
         .collect::<Result<Vec<_>, _>>()?
         .into_iter()
-        .flatten()
-        .collect();
+        .flatten();
 
     // println!("syncing:\n{:#?}", lunchmoney_transactions);
 
