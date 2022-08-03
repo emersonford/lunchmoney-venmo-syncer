@@ -72,7 +72,7 @@ impl FromStr for TransactionStatus {
 }
 
 lazy_static! {
-    static ref VENMO_AMOUNT_RE: Regex = Regex::new(r"^([-+]?)[ ]?([^0-9])([0-9.]+)$").unwrap();
+    static ref VENMO_AMOUNT_RE: Regex = Regex::new(r"^([-+]?)[ ]?([^0-9])([0-9.,]+)$").unwrap();
 }
 
 #[derive(Debug, Clone)]
@@ -103,7 +103,7 @@ impl FromStr for Amount {
                 val: format!(
                     "{}{}",
                     captures.get(1).unwrap().as_str(),
-                    captures.get(3).unwrap().as_str()
+                    captures.get(3).unwrap().as_str().replace(",", "")
                 )
                 .parse()
                 .map_err(|_| Error::ParseAmountError(s.to_string()))?,
