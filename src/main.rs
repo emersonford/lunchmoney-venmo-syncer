@@ -185,6 +185,15 @@ enum Verb {
 
     /// Sync Venmo transactions to Lunch Money asset.
     SyncVenmoTransactions(SyncVenmoTransactionsArgs),
+
+    /// Get a Venmo API token for syncing use.
+    GetVenmoApiToken,
+
+    /// Invalidate an existing Venmo API token.
+    LogoutVenmoApiToken {
+        /// The API token to invalidate
+        api_token: String,
+    },
 }
 
 #[tokio::main]
@@ -200,5 +209,9 @@ async fn main() -> Result<()> {
             cmd_list_lunch_money_assets(&client, api_token).await
         }
         Verb::SyncVenmoTransactions(args) => cmd_sync_venmo_transactions(&client, args).await,
+        Verb::GetVenmoApiToken => venmo::cmd_get_venmo_api_token(&client).await,
+        Verb::LogoutVenmoApiToken { api_token } => {
+            venmo::cmd_logout_venmo_api_token(&client, &api_token).await
+        }
     }
 }
