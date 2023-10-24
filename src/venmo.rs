@@ -193,7 +193,7 @@ pub async fn cmd_get_venmo_api_token(client: &HttpsClient) -> Result<()> {
             bail!("Email or password was incorrect!");
         }
 
-        if message != "Additional authentication is required." {
+        if message != "Additional authentication is required" {
             bail!("Unknown response: {:?}", response);
         }
 
@@ -239,6 +239,12 @@ pub async fn cmd_get_venmo_api_token(client: &HttpsClient) -> Result<()> {
 
         let twofa_code: String = Input::new().with_prompt("2FA code").interact_text()?;
 
+        let request = json!({
+            "phone_email_or_username": username,
+            "client_id": "1",
+            "password": password,
+        });
+
         let twofa_submit_request = Request::builder()
             .method(Method::POST)
             .uri("https://api.venmo.com/v1/oauth/access_token?client_id=1")
@@ -246,7 +252,7 @@ pub async fn cmd_get_venmo_api_token(client: &HttpsClient) -> Result<()> {
             .header(CONTENT_TYPE, "application/json")
             .header("venmo-otp-secret", otp_secret)
             .header("Venmo-Otp", twofa_code)
-            .body(body::Body::empty())
+            .body(serde_json::to_vec(&request)?.into())
             .unwrap();
 
         let twofa_submit_response = client.request(twofa_submit_request).await?;
